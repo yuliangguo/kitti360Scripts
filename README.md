@@ -44,7 +44,7 @@ python kitti360Viewer.py
 You can visualize the 3D fused point clouds and labels using the following tool:
 ```
 cd kitti360scripts/viewer
-python kitti360Viewer3D.py -sequence ${sequence}
+python kitti360Viewer3D.py --sequence ${sequence}
 ```
 
 ### Package Content

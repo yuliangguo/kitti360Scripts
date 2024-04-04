@@ -1,0 +1,31 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        
+        {
+            "name": "Debugger: kitti360Viewer3D",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "kitti360scripts/viewer/kitti360Viewer3D.py",
+            "console": "integratedTerminal",
+            "env": {
+                "KITTI360_DATASET": "/media/yuliangguo/data_ssd_4tb/Datasets/KITTI-360"
+            },
+            "args": [
+                "--sequence",
+                "0"
+            ]
+        },
+        {
+            "name": "Debugger: kitti360Viewer3DRaw",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "kitti360scripts/viewer/kitti360Viewer3DRaw.py",
+            "console": "integratedTerminal",
+            "env": {
+                "PYTHONPATH": "/home/yuliangguo/Projects/kitti360Scripts",
+                "KITTI360_DATASET": "/media/yuliangguo/data_ssd_4tb/Datasets/KITTI-360"
+            }
+        }
+    ]
+}

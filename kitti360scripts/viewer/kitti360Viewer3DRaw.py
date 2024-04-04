@@ -186,8 +186,8 @@ def projectVeloToImage(cam_id=0, seq=0):
         pointsCam = pointsCam[:,:3]
         # project to image space
         u,v, depth= camera.cam2image(pointsCam.T)
-        u = u.astype(np.int)
-        v = v.astype(np.int)
+        u = u.astype(np.int32)
+        v = v.astype(np.int32)
 
         # prepare depth map for visualization
         depthMap = np.zeros((camera.height, camera.width))
@@ -222,7 +222,7 @@ if __name__=='__main__':
 
     visualizeIn2D = True
     # sequence index
-    seq = 2
+    seq = 0
     # set it to 0 or 1 for projection to perspective images
     #           2 or 3 for projecting to fisheye images
     cam_id = 3
