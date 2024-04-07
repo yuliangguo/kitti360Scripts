@@ -204,7 +204,7 @@ def SaveVeloToImage(cam_id=0, seq=0, out_file=None, vis=False):
         # prepare depth map for visualization
         depthMap = np.zeros((camera.height, camera.width))
         mask = np.logical_and(np.logical_and(np.logical_and(u>=0, u<camera.width), v>=0), v<camera.height)
-        # visualize points within 80 meters
+        # save points within 80 meters
         mask = np.logical_and(np.logical_and(mask, depth>0), depth<80)
         depthMap[v[mask],u[mask]] = depth[mask]
         

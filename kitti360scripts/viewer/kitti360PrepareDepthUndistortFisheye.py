@@ -145,10 +145,7 @@ def SaveVeloToImage(cam_id=0, seq=0, f_tgt=None, out_file=None, vis=False):
     from PIL import Image
     import matplotlib.pyplot as plt
 
-    if f_tgt is None:
-        f_new = h / 2
-    else:
-        f_new = f_tgt
+    
 
     if 'KITTI360_DATASET' in os.environ:
         kitti360Path = os.environ['KITTI360_DATASET']
@@ -177,14 +174,16 @@ def SaveVeloToImage(cam_id=0, seq=0, f_tgt=None, out_file=None, vis=False):
     else:
         TrVeloToRect = velo.TrVeloToCam['image_%02d' % cam_id]
 
-    # color map for visualizing depth map
-    # cm = plt.get_cmap('jet')
-
     sub_dir = 'data_rect' if cam_id in [0,1] else 'data_rgb'
     img_dir = os.path.join(kitti360Path, 'data_2d_raw', sequence, 'image_%02d' % cam_id, sub_dir)
     img_files = sorted(glob.glob(os.path.join(img_dir, '*.png')))
     min_id = int(os.path.splitext(os.path.basename(img_files[0]))[0])
     max_id = int(os.path.splitext(os.path.basename(img_files[-1]))[0])
+    
+    if f_tgt is None:
+        f_new = camera.height / 2
+    else:
+        f_new = f_tgt
     depth_dir_undistorted = os.path.join(kitti360Path, 'proj_depth_undistorted', sequence, 'image_%02d' % cam_id, f'f{f_new}')
     # create depth directory if it doesn't exist
     if not os.path.exists(depth_dir_undistorted):
@@ -234,7 +233,7 @@ def SaveVeloToImage(cam_id=0, seq=0, f_tgt=None, out_file=None, vis=False):
 
         # prepare depth map for visualization
         depthMapUndistort = np.zeros((camera.height, camera.width))
-        # convert u, v to undistorted fisheye image coordinates
+        # convert u, v to undistorted fisheye image coordinates 
         mask = np.logical_and(np.logical_and(np.logical_and(u>=0, u<camera.width), v>=0), v<camera.height)
         depth = depth[mask]
         coords_norm = grid_fisheye[v[mask], u[mask], :]
@@ -244,9 +243,12 @@ def SaveVeloToImage(cam_id=0, seq=0, f_tgt=None, out_file=None, vis=False):
         v_new = v_new.astype(np.int32)
         
         mask = np.logical_and(np.logical_and(np.logical_and(u_new>=0, u_new<camera.width), v_new>=0), v_new<camera.height)
-        # visualize points within 80 meters
+        # only save points within 80 meters (in dist, not z-buffer)
         mask = np.logical_and(np.logical_and(mask, depth>0), depth<80)
-        depthMapUndistort[v_new[mask],u_new[mask]] = depth[mask]
+        # only save points valid in grid_fisheye preparation (last column of coords_norm indicate if it is NaN in prepraration)
+        mask = np.logical_and(mask, coords_norm[:, 3]==0)
+        # assigned undistorted depth (with convertion back to z-buffer)
+        depthMapUndistort[v_new[mask],u_new[mask]] = depth[mask] * coords_norm[:, 2][mask]
         
         # save depth map
         depthPath = os.path.join(depth_dir_undistorted, '%010d.png' % frame)
@@ -273,7 +275,7 @@ def SaveVeloToImage(cam_id=0, seq=0, f_tgt=None, out_file=None, vis=False):
 
             # load RGB image for visualization
             # color map for visualizing depth map
-            depthMapUndistort[depthMapUndistort>(30*256)] = 0 # only visualize points within 30 meters
+            # depthMapUndistort[depthMapUndistort>(30*256)] = 0 # only visualize points within 30 meters
             depthImageUndistort = cm(depthMapUndistort/depthMapUndistort.max())[...,:3]
             colorImageUndistort = colorImageUndistort.astype(np.float64) / 255.
             colorImageUndistort[depthMapUndistort>0] = depthImageUndistort[depthMapUndistort>0]
@@ -297,7 +299,7 @@ if __name__=='__main__':
     cam_ids = [2, 3]
     vis=False
 
-    # prepare training and validation data for fisheye cameras (can be implemented faster to deal all f_tgt in SaveVeloToImage function)
+    # prepare training and validation data for fisheye cameras (implemented in outer loop for simplicity)
     for f_tgt in [700, 350, 175]:
         out_train_file = os.path.join(os.environ['KITTI360_DATASET'], f'kitti360_train_fisheye_undistort_f{f_tgt}.txt')
         out_val_file = os.path.join(os.environ['KITTI360_DATASET'], f'kitti360_val_fisheye_undistort_f{f_tgt}.txt')
