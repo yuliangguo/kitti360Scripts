@@ -184,7 +184,7 @@ def projectVeloToImage(cam_id=0, seq=0):
 
         pointsCam = np.matmul(TrVeloToRect, points.T).T
         pointsCam = pointsCam[:,:3]
-        # project to image space
+        # project to image space (this depth is distance from camera center for fisheye cameras, but zbuffer for perspective cameras)
         u,v, depth= camera.cam2image(pointsCam.T)
         u = u.astype(np.int32)
         v = v.astype(np.int32)

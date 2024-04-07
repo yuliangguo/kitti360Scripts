@@ -18,6 +18,7 @@ import numpy as np
 import matplotlib.cm
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
+import cv2
 # struct for reading binary ply files
 import struct
 from kitti360scripts.helpers.csHelpers import Rodrigues
@@ -139,10 +140,15 @@ class Kitti360Viewer3DRaw(object):
         return pcd_curled.astype(np.float32)
         
 
-def SaveVeloToImage(cam_id=0, seq=0, out_file=None, vis=False):
+def SaveVeloToImage(cam_id=0, seq=0, f_tgt=None, out_file=None, vis=False):
     from kitti360scripts.helpers.project import CameraPerspective, CameraFisheye
     from PIL import Image
     import matplotlib.pyplot as plt
+
+    if f_tgt is None:
+        f_new = h / 2
+    else:
+        f_new = f_tgt
 
     if 'KITTI360_DATASET' in os.environ:
         kitti360Path = os.environ['KITTI360_DATASET']
@@ -158,6 +164,7 @@ def SaveVeloToImage(cam_id=0, seq=0, out_file=None, vis=False):
     # fisheye camera
     elif cam_id in [2,3]:
         camera = CameraFisheye(kitti360Path, sequence, cam_id)
+        grid_fisheye = np.load(os.path.join(kitti360Path, 'fisheye', f'grid_fisheye_0{cam_id}.npy'))
     else:
         raise RuntimeError('Unknown camera ID!')
 
@@ -178,15 +185,19 @@ def SaveVeloToImage(cam_id=0, seq=0, out_file=None, vis=False):
     img_files = sorted(glob.glob(os.path.join(img_dir, '*.png')))
     min_id = int(os.path.splitext(os.path.basename(img_files[0]))[0])
     max_id = int(os.path.splitext(os.path.basename(img_files[-1]))[0])
-    depth_dir = os.path.join(kitti360Path, 'proj_depth', sequence, 'image_%02d' % cam_id)
+    depth_dir_undistorted = os.path.join(kitti360Path, 'proj_depth_undistorted', sequence, 'image_%02d' % cam_id, f'f{f_new}')
     # create depth directory if it doesn't exist
-    if not os.path.exists(depth_dir):
-        os.makedirs(depth_dir)
+    if not os.path.exists(depth_dir_undistorted):
+        os.makedirs(depth_dir_undistorted)
+    img_dir_undistorted = os.path.join(kitti360Path, 'data_2d_undistorted', sequence, 'image_%02d' % cam_id, f'f{f_new}')
+    # create undistorted image directory if it doesn't exist
+    if not os.path.exists(img_dir_undistorted):
+        os.makedirs(img_dir_undistorted)
 
     # visualize a set of frame
     # for each frame, load the raw 3D scan and project to image plane
     for frame in range(min_id, max_id, 10):
-        print(f'Processing seq {seq}, cam {cam_id}, frame {frame} in [{min_id}, {max_id}]')
+        print(f'Processing f_new {f_new}, seq {seq}, cam {cam_id}, frame {frame} in [{min_id}, {max_id}]')
         
         points = velo.loadVelodyneData(frame)
         # curl velodyne
@@ -197,28 +208,56 @@ def SaveVeloToImage(cam_id=0, seq=0, out_file=None, vis=False):
         pointsCam = np.matmul(TrVeloToRect, points.T).T
         pointsCam = pointsCam[:,:3]
         # project to image space (this depth is distance from camera center for fisheye cameras, but zbuffer for perspective cameras)
-        u,v, depth= camera.cam2image(pointsCam.T)
+        u, v, depth= camera.cam2image(pointsCam.T)
         u = u.astype(np.int32)
         v = v.astype(np.int32)
+        
+        # undistort fisheye image 
+        imagePath = os.path.join(img_dir, '%010d.png' % frame)
+        if not os.path.isfile(imagePath):
+            raise RuntimeError('Image file %s does not exist!' % imagePath)
+        colorImage = np.array(Image.open(imagePath))
+        h, w = camera.height, camera.width
+        K = np.array([[camera.fi['projection_parameters']['gamma1'], 0., camera.fi['projection_parameters']['u0']],
+                      [0., camera.fi['projection_parameters']['gamma2'], camera.fi['projection_parameters']['v0']],
+                      [0., 0., 1.]], dtype=np.float32)
+        distCoeffs = np.array([camera.fi['distortion_parameters']['k1'], camera.fi['distortion_parameters']['k2'],
+                               camera.fi['distortion_parameters']['p1'], camera.fi['distortion_parameters']['p2']], dtype=np.float32)
+        xi = camera.fi['mirror_parameters']['xi']
+        
+        K_new = np.array([[f_new, 0, w / 2],
+                          [0, f_new, h / 2],
+                          [0, 0, 1]]).astype(np.float32)
+        colorImageUndistort = cv2.omnidir.undistortImage(colorImage, K, distCoeffs, np.array(xi).astype(np.float32), cv2.omnidir.RECTIFY_PERSPECTIVE, Knew=K_new)
+        undistort_imgPath = os.path.join(img_dir_undistorted, '%010d.png' % frame)
+        Image.fromarray(colorImageUndistort).save(undistort_imgPath)
 
         # prepare depth map for visualization
-        depthMap = np.zeros((camera.height, camera.width))
+        depthMapUndistort = np.zeros((camera.height, camera.width))
+        # convert u, v to undistorted fisheye image coordinates
         mask = np.logical_and(np.logical_and(np.logical_and(u>=0, u<camera.width), v>=0), v<camera.height)
+        depth = depth[mask]
+        coords_norm = grid_fisheye[v[mask], u[mask], :]
+        u_new = coords_norm[:, 0] / coords_norm[:, 2] * f_new + w / 2
+        v_new = coords_norm[:, 1] / coords_norm[:, 2] * f_new + h / 2
+        u_new = u_new.astype(np.int32)
+        v_new = v_new.astype(np.int32)
+        
+        mask = np.logical_and(np.logical_and(np.logical_and(u_new>=0, u_new<camera.width), v_new>=0), v_new<camera.height)
         # visualize points within 80 meters
         mask = np.logical_and(np.logical_and(mask, depth>0), depth<80)
-        depthMap[v[mask],u[mask]] = depth[mask]
+        depthMapUndistort[v_new[mask],u_new[mask]] = depth[mask]
         
         # save depth map
-        depthPath = os.path.join(depth_dir, '%010d.png' % frame)
-        depthMap = (depthMap * 256).astype(np.int16)
-        Image.fromarray(depthMap).save(depthPath)
+        depthPath = os.path.join(depth_dir_undistorted, '%010d.png' % frame)
+        depthMapUndistort = (depthMapUndistort * 256).astype(np.int16)
+        Image.fromarray(depthMapUndistort).save(depthPath)
         
         # write to out_file
-        imagePathRel = os.path.join('data_2d_raw', sequence, 'image_%02d' % cam_id, sub_dir, '%010d.png' % frame)
-        depthPathRel = os.path.join('proj_depth', sequence, 'image_%02d' % cam_id, '%010d.png' % frame)
+        imagePathRel = os.path.join('data_2d_undistorted', sequence, 'image_%02d' % cam_id, f'f{f_new}', '%010d.png' % frame)
+        depthPathRel = os.path.join('proj_depth_undistorted', sequence, 'image_%02d' % cam_id, f'f{f_new}', '%010d.png' % frame)
 
-        fx=camera.fi['projection_parameters']['gamma1']
-        out_str = f'{imagePathRel} {depthPathRel} {fx:.4f}'
+        out_str = f'{imagePathRel} {depthPathRel} {f_new:.4f}'
         if os.path.isfile(out_file):
             mode = 'a'  # append to existing file
         else:
@@ -233,52 +272,53 @@ def SaveVeloToImage(cam_id=0, seq=0, out_file=None, vis=False):
             cm = plt.get_cmap('jet')
 
             # load RGB image for visualization
-            imagePath = os.path.join(img_dir, '%010d.png' % frame)
-            if not os.path.isfile(imagePath):
-                raise RuntimeError('Image file %s does not exist!' % imagePath)
+            # color map for visualizing depth map
+            depthMapUndistort[depthMapUndistort>(30*256)] = 0 # only visualize points within 30 meters
+            depthImageUndistort = cm(depthMapUndistort/depthMapUndistort.max())[...,:3]
+            colorImageUndistort = colorImageUndistort.astype(np.float64) / 255.
+            colorImageUndistort[depthMapUndistort>0] = depthImageUndistort[depthMapUndistort>0]
 
-            colorImage = np.array(Image.open(imagePath)) / 255.
-            depthImage = cm(depthMap/depthMap.max())[...,:3]
-            colorImage[depthMap>0] = depthImage[depthMap>0]
-
-            axs[0].imshow(depthMap, cmap='jet', interpolation='none')
+            axs[0].imshow(depthMapUndistort, cmap='jet', interpolation='none')
             axs[0].title.set_text('Projected Depth')
             axs[0].axis('off')
-            axs[1].imshow(colorImage)
+            axs[1].imshow(colorImageUndistort)
             axs[1].title.set_text('Projected Depth Overlaid on Image')
             axs[1].axis('off')
             plt.suptitle('Sequence %04d, Camera %02d, Frame %010d' % (seq, cam_id, frame))
             plt.show()
 
+
 if __name__=='__main__':
 
     train_seq = [3, 4, 5, 6, 7, 9, 10]
     val_seq = [0, 2]
-    vis = False
-    
     # set cam_id to 0 or 1 for projection to perspective images
     #               2 or 3 for projecting to fisheye images
     cam_ids = [2, 3]
-    out_train_file = os.path.join(os.environ['KITTI360_DATASET'], 'kitti360_train_fisheye.txt')
-    out_val_file = os.path.join(os.environ['KITTI360_DATASET'], 'kitti360_val_fisheye.txt')
-    # Delete out_val_file if it exists
-    if os.path.isfile(out_train_file):
-        os.remove(out_train_file)
-    # Delete out_val_file if it exists
-    if os.path.isfile(out_val_file):
-        os.remove(out_val_file)
+    vis=False
 
-    # prepare validation data for fisheye cameras
-    for seq in val_seq:
-        for cam_id in cam_ids:
-            # visualize raw 3D velodyne scans in 2D
-            SaveVeloToImage(seq=seq, cam_id=cam_id, out_file=out_val_file, vis=vis)
-    
-    # prepare training data for fisheye cameras
-    for seq in train_seq:
-        for cam_id in cam_ids:
-            # visualize raw 3D velodyne scans in 2D
-            SaveVeloToImage(seq=seq, cam_id=cam_id, out_file=out_train_file, vis=vis)
+    # prepare training and validation data for fisheye cameras (can be implemented faster to deal all f_tgt in SaveVeloToImage function)
+    for f_tgt in [700, 350, 175]:
+        out_train_file = os.path.join(os.environ['KITTI360_DATASET'], f'kitti360_train_fisheye_undistort_f{f_tgt}.txt')
+        out_val_file = os.path.join(os.environ['KITTI360_DATASET'], f'kitti360_val_fisheye_undistort_f{f_tgt}.txt')
+        # Delete out_val_file if it exists
+        if os.path.isfile(out_train_file):
+            os.remove(out_train_file)
+        # Delete out_val_file if it exists
+        if os.path.isfile(out_val_file):
+            os.remove(out_val_file)
+
+        # prepare validation data for fisheye cameras
+        for seq in val_seq:
+            for cam_id in cam_ids:
+                # visualize raw 3D velodyne scans in 2D
+                SaveVeloToImage(seq=seq, cam_id=cam_id, f_tgt=f_tgt, out_file=out_val_file, vis=vis)
+        
+        # prepare training data for fisheye cameras
+        for seq in train_seq:
+            for cam_id in cam_ids:
+                # visualize raw 3D velodyne scans in 2D
+                SaveVeloToImage(seq=seq, cam_id=cam_id, f_tgt=f_tgt, out_file=out_train_file, vis=vis)
     
 
 
