@@ -49,6 +49,17 @@
                 "KITTI360_DATASET": "/media/yuliangguo/data_ssd_4tb/Datasets/KITTI-360"
             }
         },
+        {
+            "name": "Debugger: kitti360PrepareDepthERP",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "kitti360scripts/viewer/kitti360PrepareDepthERP.py",
+            "console": "integratedTerminal",
+            "env": {
+                "PYTHONPATH": "/home/yuliangguo/Projects/kitti360Scripts",
+                "KITTI360_DATASET": "/media/yuliangguo/data_ssd_4tb/Datasets/KITTI-360"
+            }
+        },
 
     ]
 }
