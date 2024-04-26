@@ -139,7 +139,7 @@ class Kitti360Viewer3DRaw(object):
         return pcd_curled.astype(np.float32)
         
 
-def SaveVeloToImage(cam_id=0, seq=0, out_file=None, vis=False):
+def SaveVeloToImage(cam_id=0, seq=0, out_file=None, vis=False, step=10):
     from kitti360scripts.helpers.project import CameraPerspective, CameraFisheye
     from PIL import Image
     import matplotlib.pyplot as plt
@@ -179,13 +179,17 @@ def SaveVeloToImage(cam_id=0, seq=0, out_file=None, vis=False):
     min_id = int(os.path.splitext(os.path.basename(img_files[0]))[0])
     max_id = int(os.path.splitext(os.path.basename(img_files[-1]))[0])
     depth_dir = os.path.join(kitti360Path, 'proj_depth', sequence, 'image_%02d' % cam_id)
+    img_dir_out = os.path.join(kitti360Path, 'data_2d_raw_subset', sequence, 'image_%02d' % cam_id, sub_dir)
+
     # create depth directory if it doesn't exist
     if not os.path.exists(depth_dir):
         os.makedirs(depth_dir)
+    if not os.path.exists(img_dir_out):
+        os.makedirs(img_dir_out)
 
     # visualize a set of frame
     # for each frame, load the raw 3D scan and project to image plane
-    for frame in range(min_id, max_id, 10):
+    for frame in range(min_id, max_id, step):
         print(f'Processing seq {seq}, cam {cam_id}, frame {frame} in [{min_id}, {max_id}]')
         
         points = velo.loadVelodyneData(frame)
@@ -204,8 +208,9 @@ def SaveVeloToImage(cam_id=0, seq=0, out_file=None, vis=False):
         # prepare depth map for visualization
         depthMap = np.zeros((camera.height, camera.width))
         mask = np.logical_and(np.logical_and(np.logical_and(u>=0, u<camera.width), v>=0), v<camera.height)
-        # save points within 80 meters
-        mask = np.logical_and(np.logical_and(mask, depth>0), depth<80)
+        # save valid points (in dist, not z-buffer)
+        mask = np.logical_and(mask, depth>0)
+        # mask = np.logical_and(mask, depth<80)
         depthMap[v[mask],u[mask]] = depth[mask]
         
         # save depth map
@@ -213,8 +218,14 @@ def SaveVeloToImage(cam_id=0, seq=0, out_file=None, vis=False):
         depthMap = (depthMap * 256).astype(np.int16)
         Image.fromarray(depthMap).save(depthPath)
         
+        # save image copy to another directory
+        imagePath = os.path.join(img_dir, '%010d.png' % frame)
+        if not os.path.isfile(imagePath):
+            raise RuntimeError('Image file %s does not exist!' % imagePath)
+        Image.open(imagePath).save(os.path.join(img_dir_out, '%010d.png' % frame))
+        
         # write to out_file
-        imagePathRel = os.path.join('data_2d_raw', sequence, 'image_%02d' % cam_id, sub_dir, '%010d.png' % frame)
+        imagePathRel = os.path.join('data_2d_raw_subset', sequence, 'image_%02d' % cam_id, sub_dir, '%010d.png' % frame)
         depthPathRel = os.path.join('proj_depth', sequence, 'image_%02d' % cam_id, '%010d.png' % frame)
 
         fx=camera.fi['projection_parameters']['gamma1']
@@ -252,8 +263,8 @@ def SaveVeloToImage(cam_id=0, seq=0, out_file=None, vis=False):
 
 if __name__=='__main__':
 
-    train_seq = [3, 4, 5, 6, 7, 9, 10]
-    val_seq = [0, 2]
+    train_seq = [2, 3, 4, 5, 6, 7, 9, 10]
+    val_seq = [0]
     vis = False
     
     # set cam_id to 0 or 1 for projection to perspective images
@@ -272,13 +283,13 @@ if __name__=='__main__':
     for seq in val_seq:
         for cam_id in cam_ids:
             # visualize raw 3D velodyne scans in 2D
-            SaveVeloToImage(seq=seq, cam_id=cam_id, out_file=out_val_file, vis=vis)
+            SaveVeloToImage(seq=seq, cam_id=cam_id, out_file=out_val_file, vis=vis, step=10)
     
     # prepare training data for fisheye cameras
     for seq in train_seq:
         for cam_id in cam_ids:
             # visualize raw 3D velodyne scans in 2D
-            SaveVeloToImage(seq=seq, cam_id=cam_id, out_file=out_train_file, vis=vis)
+            SaveVeloToImage(seq=seq, cam_id=cam_id, out_file=out_train_file, vis=vis, step=10)
     
 
 

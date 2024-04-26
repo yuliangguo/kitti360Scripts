@@ -192,7 +192,7 @@ class Kitti360Viewer3DRaw(object):
         return pcd_curled.astype(np.float32)
         
 
-def SaveVeloToImage(cam_id=0, seq=0, out_file=None, vis=False):
+def SaveVeloToImage(cam_id=0, seq=0, out_file=None, vis=False, step=10):
     from kitti360scripts.helpers.project import CameraPerspective, CameraFisheye
     from PIL import Image
     import matplotlib.pyplot as plt
@@ -211,7 +211,6 @@ def SaveVeloToImage(cam_id=0, seq=0, out_file=None, vis=False):
     # fisheye camera
     elif cam_id in [2,3]:
         camera = CameraFisheye(kitti360Path, sequence, cam_id)
-        grid_fisheye = np.load(os.path.join(kitti360Path, 'fisheye', f'grid_fisheye_0{cam_id}.npy'))
     else:
         raise RuntimeError('Unknown camera ID!')
 
@@ -241,7 +240,7 @@ def SaveVeloToImage(cam_id=0, seq=0, out_file=None, vis=False):
 
     # visualize a set of frame
     # for each frame, load the raw 3D scan and project to image plane
-    for frame in range(min_id, max_id, 10):
+    for frame in range(min_id, max_id, step):
         print(f'Processing seq {seq}, cam {cam_id}, frame {frame} in [{min_id}, {max_id}]')
         
         points = velo.loadVelodyneData(frame)
@@ -280,8 +279,9 @@ def SaveVeloToImage(cam_id=0, seq=0, out_file=None, vis=False):
         
         # convert u, v to ERP fisheye image coordinates 
         mask = np.logical_and(np.logical_and(np.logical_and(u_new>=0, u_new<camera.width), v_new>=0), v_new<camera.height)
-                # only save points within 80 meters (in dist, not z-buffer)
-        mask = np.logical_and(np.logical_and(mask, depth>0), depth<80)
+        # only save valid points (in dist, not z-buffer)
+        mask = np.logical_and(mask, depth>0)
+        # mask = np.logical_and(mask, depth<80)
 
         # assigned ERP depth (with convertion back to z-buffer)
         depthMapERP[v_new[mask],u_new[mask]] = depth[mask]
@@ -328,8 +328,8 @@ def SaveVeloToImage(cam_id=0, seq=0, out_file=None, vis=False):
 
 if __name__=='__main__':
 
-    train_seq = [3, 4, 5, 6, 7, 9, 10]
-    val_seq = [0, 2]
+    train_seq = [2, 3, 4, 5, 6, 7, 9, 10]
+    val_seq = [0]
     # set cam_id to 0 or 1 for projection to perspective images
     #               2 or 3 for projecting to fisheye images
     cam_ids = [2, 3]
@@ -349,14 +349,13 @@ if __name__=='__main__':
     for seq in val_seq:
         for cam_id in cam_ids:
             # visualize raw 3D velodyne scans in 2D
-            SaveVeloToImage(seq=seq, cam_id=cam_id, out_file=out_val_file, vis=vis)
+            SaveVeloToImage(seq=seq, cam_id=cam_id, out_file=out_val_file, vis=vis, step=10)
     
     # prepare training data for fisheye cameras
     for seq in train_seq:
         for cam_id in cam_ids:
             # visualize raw 3D velodyne scans in 2D
-            SaveVeloToImage(seq=seq, cam_id=cam_id, out_file=out_train_file, vis=vis)
-    
+            SaveVeloToImage(seq=seq, cam_id=cam_id, out_file=out_train_file, vis=vis, step=10)
 
 
 

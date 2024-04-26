@@ -243,8 +243,9 @@ def SaveVeloToImage(cam_id=0, seq=0, f_tgt=None, out_file=None, vis=False):
         v_new = v_new.astype(np.int32)
         
         mask = np.logical_and(np.logical_and(np.logical_and(u_new>=0, u_new<camera.width), v_new>=0), v_new<camera.height)
-        # only save points within 80 meters (in dist, not z-buffer)
-        mask = np.logical_and(np.logical_and(mask, depth>0), depth<80)
+        # save valid points (in dist, not z-buffer)
+        mask = np.logical_and(mask, depth>0)
+        # mask = np.logical_and(mask, depth<80)
         # only save points valid in grid_fisheye preparation (last column of coords_norm indicate if it is NaN in prepraration)
         mask = np.logical_and(mask, coords_norm[:, 3]==0)
         # assigned undistorted depth (with convertion back to z-buffer)
