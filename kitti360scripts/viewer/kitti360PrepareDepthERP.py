@@ -83,6 +83,9 @@ def fisheye_to_erp(fisheye_image, intrinsics, output_size=(1400, 1400)):
     p_v = gamma2*p_v + v0
 
     # Remap the fisheye image to ERP projection
+    # if fisheye_image.ndim == 2:
+    #     erp_img = cv2.remap(fisheye_image, p_u, p_v, interpolation=cv2.INTER_NEAREST, borderMode=cv2.BORDER_TRANSPARENT)
+    # else:
     erp_img = cv2.remap(fisheye_image, p_u, p_v, interpolation=cv2.INTER_CUBIC, borderMode=cv2.BORDER_TRANSPARENT)
 
     return erp_img
@@ -214,6 +217,15 @@ def SaveVeloToImage(cam_id=0, seq=0, out_file=None, vis=False, step=10):
     else:
         raise RuntimeError('Unknown camera ID!')
 
+    # prepare fish-eye mask for car border
+    if cam_id ==2:
+        mask_fisheye = np.load(os.path.join(kitti360Path, 'fisheye', 'mask_left_fisheye.npy'))
+    elif cam_id ==3:
+        mask_fisheye = np.load(os.path.join(kitti360Path, 'fisheye', 'mask_right_fisheye.npy'))
+    mask_fisheye = cv2.resize(mask_fisheye.astype(np.uint8), (1400, 1400), interpolation=cv2.INTER_NEAREST)
+    # this transform uses interpolation to expand the mask
+    mask_fisheye = fisheye_to_erp(mask_fisheye, camera.fi, output_size=(1400, 1400))
+            
     # object for parsing 3d raw data 
     velo = Kitti360Viewer3DRaw(mode='velodyne', seq=seq)
     
@@ -262,6 +274,8 @@ def SaveVeloToImage(cam_id=0, seq=0, out_file=None, vis=False, step=10):
             raise RuntimeError('Image file %s does not exist!' % imagePath)
         colorImage = np.array(Image.open(imagePath))        
         colorImageERP = fisheye_to_erp(colorImage, camera.fi, output_size=(1400, 1400))
+        # maskout the car border
+        colorImageERP[mask_fisheye>0] = 0
 
         imgPathERP = os.path.join(img_dir_erp, '%010d.png' % frame)
         Image.fromarray(colorImageERP).save(imgPathERP)
